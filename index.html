@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credit Card Spending Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Credit Card Spending Tracker</h1>
+    <form id="spendingForm">
+        <input type="number" id="amount" placeholder="Amount" required>
+        <input type="text" id="description" placeholder="Description" required>
+        <input type="date" id="purchaseDate" required>
+        <button type="submit">Add Purchase</button>
+    </form>
+
+    <div id="results"></div>
+    <div id="purchases"></div>
+
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-database-compat.js"></script>
+
+    <script>
+        // Firebase configuration
+// Import the functions you need from the SDKs you need
+      // import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+      // import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-analytics.js";
+      // TODO: Add SDKs for Firebase products that you want to use
+      // https://firebase.google.com/docs/web/setup#available-libraries
+    
+      // Your web app's Firebase configuration
+      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+      const firebaseConfig = {
+        apiKey: "AIzaSyBxQ6_CowfnOtIQBLO4S8512OlZb3csUgw",
+        authDomain: "credit-card-spendings.firebaseapp.com",
+        projectId: "credit-card-spendings",
+        storageBucket: "credit-card-spendings.firebasestorage.app",
+        databaseURL: "https://credit-card-spendings-default-rtdb.firebaseio.com",
+        messagingSenderId: "525513871457",
+        appId: "1:525513871457:web:26eaf98edd4b3b37c21a20",
+        measurementId: "G-RVXCS6QFL1"
+      };
+    
+      // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        // const analytics = firebase.getAnalytics(app);
+        // Initialize Firebase
+        const database = firebase.database();
+
+        // Global spending data array
+        let spendingData = [];
+
+        // Load spendings from Firestore
+        function loadSpendings() {
+            const spendingRef = database.ref('spendings');
+            spendingRef.on('value', (snapshot) => {
+                spendingData = [];
+                snapshot.forEach((childSnapshot) => {
+                    const spending = childSnapshot.val();
+                    spendingData.push({
+                        id: childSnapshot.key,
+                        ...spending,
+                        purchaseDate: new Date(spending.purchaseDate),
+                        settlementDate: new Date(spending.settlementDate)
+                    });
+                });
+                displayResults();
+                displayPurchases();
+            });
+        }
+
+
+        // Save spending to Firestore
+        function saveSpending(amount, description, purchaseDate, settlementDate) {
+            const spendingRef = database.ref('spendings');
+            spendingRef.push({
+                amount,
+                description,
+                purchaseDate: purchaseDate.toISOString(),
+                settlementDate: settlementDate.toISOString()
+            })
+            .then(() => {
+                console.log("Spending added to Realtime Database!");
+                loadSpendings(); // Refresh the list
+            })
+            .catch((error) => console.error("Error adding spending:", error));
+        }
+
+
+        // Delete spending from Firestore
+        function deleteSpending(id) {
+            const spendingRef = database.ref('spendings').child(id);
+            spendingRef.remove()
+                .then(() => {
+                    console.log("Spending deleted!");
+                    loadSpendings(); // Refresh the list
+                })
+                .catch((error) => console.error("Error deleting spending:", error));
+        }
+
+
+        // Calculate settlement date
+        function calculateSettlementDate(purchaseDate) {
+            const month = purchaseDate.getMonth();
+            const year = purchaseDate.getFullYear();
+
+            if (purchaseDate.getDate() > 10) {
+                const settlementMonth = (month + 2) % 12;
+                const settlementYear = month + 2 > 11 ? year + 1 : year;
+                return new Date(settlementYear, settlementMonth, 5);
+            }
+
+            const settlementMonth = (month + 1) % 12;
+            const settlementYear = month + 1 > 11 ? year + 1 : year;
+            return new Date(settlementYear, settlementMonth, 5);
+        }
+
+        // Display totals grouped by settlement month
+        function displayResults() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<h2>Monthly Totals</h2>';
+
+            const grouped = spendingData.reduce((acc, { amount, settlementDate }) => {
+                const monthKey = settlementDate.toISOString().slice(0, 7); // YYYY-MM
+                acc[monthKey] = (acc[monthKey] || 0) + amount;
+                return acc;
+            }, {});
+
+            Object.entries(grouped).forEach(([month, total]) => {
+                const div = document.createElement('div');
+                div.textContent = `Month: ${month}, Total: ${total.toFixed(2)}`;
+                resultsDiv.appendChild(div);
+            });
+        }
+
+        // Display all purchases
+        function displayPurchases() {
+            const purchasesDiv = document.getElementById('purchases');
+            purchasesDiv.innerHTML = '<h2>All Purchases</h2>';
+
+            spendingData.forEach(({ id, amount, description, purchaseDate, settlementDate }, index) => {
+                const div = document.createElement('div');
+                div.innerHTML = `
+                    <strong>Purchase #${index + 1}</strong><br>
+                    Amount: ${amount.toFixed(2)}<br>
+                    Description: ${description}<br>
+                    Purchase Date: ${new Date(purchaseDate).toLocaleDateString()}<br>
+                    Settlement Date: ${new Date(settlementDate).toLocaleDateString()}<br>
+                    <button onclick="deleteSpending('${id}')">Delete</button>
+                    <hr>
+                `;
+                purchasesDiv.appendChild(div);
+            });
+        }
+
+        // Handle form submission
+        document.getElementById('spendingForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const amount = parseFloat(document.getElementById('amount').value);
+            const description = document.getElementById('description').value;
+            const purchaseDate = new Date(document.getElementById('purchaseDate').value);
+
+            const settlementDate = calculateSettlementDate(purchaseDate);
+
+            saveSpending(amount, description, purchaseDate, settlementDate);
+
+            // Reset form
+            document.getElementById('spendingForm').reset();
+        });
+
+        // Initialize
+        loadSpendings();
+    </script>
+</body>
+</html>
+
+
+<!-- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credit Card Spending Calculator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Credit Card Spending Calculator</h1>
+    <form id="spendingForm">
+        <input type="number" id="amount" placeholder="Amount" required />
+        <input type="text" id="description" placeholder="Description" required />
+        <input type="date" id="purchaseDate" required />
+        <button type="submit">Add</button>
+    </form>
+    <div id="results"></div>
+    <div id="purchases"></div>
+    <script type="module">
+      // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-analytics.js";
+      // TODO: Add SDKs for Firebase products that you want to use
+      // https://firebase.google.com/docs/web/setup#available-libraries
+    
+      // Your web app's Firebase configuration
+      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+      const firebaseConfig = {
+        apiKey: "AIzaSyBxQ6_CowfnOtIQBLO4S8512OlZb3csUgw",
+        authDomain: "credit-card-spendings.firebaseapp.com",
+        projectId: "credit-card-spendings",
+        storageBucket: "credit-card-spendings.firebasestorage.app",
+        messagingSenderId: "525513871457",
+        appId: "1:525513871457:web:26eaf98edd4b3b37c21a20",
+        measurementId: "G-RVXCS6QFL1"
+      };
+    
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const analytics = getAnalytics(app);
+    </script>    
+    <script src="script.js"></script>
+</body>
+</html> -->
